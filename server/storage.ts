@@ -1,4 +1,6 @@
 import { todos, type Todo, type InsertTodo } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
   getTodos(): Promise<Todo[]>;
@@ -8,53 +10,64 @@ export interface IStorage {
   reorderTodos(orderedIds: number[]): Promise<Todo[]>;
 }
 
-export class MemStorage implements IStorage {
-  private todos: Map<number, Todo>;
-  private currentId: number;
-
-  constructor() {
-    this.todos = new Map();
-    this.currentId = 1;
-  }
-
+export class DatabaseStorage implements IStorage {
   async getTodos(): Promise<Todo[]> {
-    return Array.from(this.todos.values()).sort((a, b) => a.order - b.order);
+    return await db.select().from(todos).orderBy(todos.order);
   }
 
   async createTodo(insertTodo: InsertTodo): Promise<Todo> {
-    const id = this.currentId++;
-    const todo: Todo = { ...insertTodo, id };
-    this.todos.set(id, todo);
+    const [todo] = await db
+      .insert(todos)
+      .values(insertTodo)
+      .returning();
     return todo;
   }
 
   async updateTodo(id: number, updates: Partial<InsertTodo>): Promise<Todo> {
-    const todo = this.todos.get(id);
-    if (!todo) throw new Error("Todo not found");
-    
-    const updatedTodo = { ...todo, ...updates };
-    this.todos.set(id, updatedTodo);
-    return updatedTodo;
+    const [todo] = await db
+      .update(todos)
+      .set(updates)
+      .where(eq(todos.id, id))
+      .returning();
+
+    if (!todo) {
+      throw new Error("Todo not found");
+    }
+
+    return todo;
   }
 
   async deleteTodo(id: number): Promise<void> {
-    if (!this.todos.delete(id)) {
+    const [todo] = await db
+      .delete(todos)
+      .where(eq(todos.id, id))
+      .returning();
+
+    if (!todo) {
       throw new Error("Todo not found");
     }
   }
 
   async reorderTodos(orderedIds: number[]): Promise<Todo[]> {
-    const reorderedTodos: Todo[] = [];
-    orderedIds.forEach((id, index) => {
-      const todo = this.todos.get(id);
-      if (todo) {
-        const updatedTodo = { ...todo, order: index };
-        this.todos.set(id, updatedTodo);
-        reorderedTodos.push(updatedTodo);
+    // Update orders in a transaction to ensure consistency
+    const reorderedTodos = await db.transaction(async (tx) => {
+      const updatedTodos = [];
+      for (const [index, id] of orderedIds.entries()) {
+        const [todo] = await tx
+          .update(todos)
+          .set({ order: index })
+          .where(eq(todos.id, id))
+          .returning();
+
+        if (todo) {
+          updatedTodos.push(todo);
+        }
       }
+      return updatedTodos;
     });
+
     return reorderedTodos;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
