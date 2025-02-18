@@ -40,13 +40,14 @@ export function AddTodo() {
     },
   });
 
-  const onSubmit = form.handleSubmit((data) => {
-    addMutation.mutate(data);
-  });
-
   return (
     <Form {...form}>
-      <form onSubmit={onSubmit} className="flex space-x-2">
+      <form 
+        onSubmit={form.handleSubmit((data) => {
+          addMutation.mutate(data);
+        })} 
+        className="flex space-x-2"
+      >
         <FormField
           control={form.control}
           name="title"
@@ -56,11 +57,6 @@ export function AddTodo() {
                 <Input
                   placeholder="Add a new todo..."
                   {...field}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      onSubmit();
-                    }
-                  }}
                 />
               </FormControl>
             </FormItem>
